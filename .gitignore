@@ -1,0 +1,10 @@
+/config/firebase-service-account.json
+/logs/*
+!/logs/.gitkeep
+node_modules/
+npm-debug.log
+yarn-error.log
+.DS_Store
+.env
+.vscode/
+.idea/
