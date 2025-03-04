@@ -1,7 +1,8 @@
 const { User } = require("../models");
 const admin = require("../config/firebase");
 const logger = require("../config/logger");
-
+const { sendEmail } = require("../utils/emailService");
+const { sendEmailVerification } = require("../services/firebaseService");
 const validatePassword = (password) => {
   const regex =
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
@@ -15,6 +16,25 @@ exports.testFirebase = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+exports.testEmail = async (req, res) => {
+  const { email } = req.body;
+  const emailSent = await sendEmail(
+    email,
+    "Test Email - ThinkMirAI",
+    "<p>This is a test email from ThinkMirAI.</p>"
+  );
+  res.json({ emailSent });
+};
+
+exports.sendEmailVerificationLink = async (req, res) => {
+  const { email } = req.body;
+  const emailSent = await sendEmailVerification(email);
+  if (!emailSent.success) {
+    return res.status(500).json({ error: emailSent.message });
+  }
+  res.json(emailSent);
 };
 
 exports.signup = async (req, res) => {
@@ -53,17 +73,16 @@ exports.signup = async (req, res) => {
     });
 
     // Generate Email Verification Link
-    const actionCodeSettings = {
-      url: "http://yourfrontend.com/verify-email", // Change this later
-      handleCodeInApp: true,
-    };
+    const emailSent = await sendEmailVerification(email);
 
-    const verificationLink = await admin
-      .auth()
-      .generateEmailVerificationLink(email, actionCodeSettings);
-
-    // Print verification link to console (Later will be sent via email)
-    console.log(`🔗 Email Verification Link: ${verificationLink}`);
+    if (!emailSent.success) {
+      return res
+        .status(500)
+        .json({
+          error:
+            "User created, but email verification failed. Please try again.",
+        });
+    }
 
     // Store User Metadata in PostgreSQL
     const newUser = await User.create({
@@ -92,7 +111,11 @@ exports.signup = async (req, res) => {
         .json({ error: "Email is already in use. Please log in." });
     } else if (error.code === "auth/invalid-phone-number") {
       return res.status(400).json({ error: "Invalid phone number format." });
-    } else if (error.code === "auth/weak-password") {
+    }
+    else if (error.code === "auth/phone-number-already-exists") {
+      return res.status(400).json({ error: "Phone number already exists." });
+      }
+    else if (error.code === "auth/weak-password") {
       return res.status(400).json({ error: "Password is too weak." });
     } else {
       logger.error(`Signup Error: ${error.message}`);
