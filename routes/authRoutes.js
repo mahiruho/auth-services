@@ -10,7 +10,8 @@ const {
   logout,
   testFirebase,
   testEmail,
-  sendEmailVerificationLink
+  sendEmailVerificationLink,
+  refreshToken
 } = require("../controllers/authController");
 
 const signupLimiter = rateLimit({
@@ -27,4 +28,5 @@ router.post("/logout", logout);
 router.get("/test-firebase", testFirebase);
 router.post("/test-email", testEmail);
 router.post("/verify-email", sendEmailVerificationLink);
+router.post("/refresh-token", refreshToken); // New route
 module.exports = router;

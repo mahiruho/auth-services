@@ -1,8 +1,21 @@
 const { User } = require("../models");
 const admin = require("../config/firebase");
 const logger = require("../config/logger");
-const { sendEmail } = require("../utils/emailService");
+const { sendEmail } = require("../services/emailService");
 const { sendEmailVerification } = require("../services/firebaseService");
+const { generateJWT, generateRefreshToken, verifyJWT, verifyRefreshToken } = require("../services/jwtService");
+const {
+  JWT_COOKIE_NAME,
+  JWT_REFRESH_COOKIE_NAME,
+  COOKIE_HTTP_ONLY,
+  COOKIE_SECURE,
+  COOKIE_SAME_SITE,
+  COOKIE_PATH,
+  COOKIE_DOMAIN,
+  JWT_EXPIRES_IN,
+  JWT_REFRESH_EXPIRES_IN,
+} = process.env;
+
 const validatePassword = (password) => {
   const regex =
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
@@ -126,22 +139,206 @@ exports.signup = async (req, res) => {
 
 // User Login
 exports.login = async (req, res) => {
-  res.json({ message: "Login endpoint not implemented yet" });
+  try {
+    const { firebaseToken } = req.body;
+    if (!firebaseToken) {
+      return res.status(400).json({ error: "Firebase token is required" });
+    }
+
+    // Verify Firebase Token
+    const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+    const { uid, email, name, picture,email_verified } = decodedToken;
+
+    // Check if user exists in DB (Optional, modify as needed)
+    let user = await User.findOne({ where: { firebase_uid: uid } });
+    if (!user) {
+      // Create user in DB if not exists (Optional)
+      user = await User.create({
+        firebase_uid: uid,
+        email,
+        full_name: name || null,
+        profile_pic: picture || null,
+        signup_date: new Date(),
+        last_login: new Date(),
+        email_verified: email_verified,
+      });
+    }
+
+    // Generate Tokens
+    const miraiAuthToken = generateJWT(uid, email);
+    const miraiRefreshToken = generateRefreshToken(uid, email);
+    
+    // Set HttpOnly Cookies for Secure Authentication
+    res.cookie(JWT_COOKIE_NAME, miraiAuthToken, {
+      httpOnly: COOKIE_HTTP_ONLY === "true", // Convert string to boolean
+      secure: COOKIE_SECURE === 'true', // Ensure HTTPS usage
+      sameSite: COOKIE_SAME_SITE, // Prevent CSRF attacks
+      maxAge: JWT_EXPIRES_IN * 1000, // Convert seconds to milliseconds
+    });
+
+    res.cookie(JWT_REFRESH_COOKIE_NAME, miraiRefreshToken, {
+      httpOnly: COOKIE_HTTP_ONLY === "true",
+      secure: COOKIE_SECURE === 'true',
+      sameSite: COOKIE_SAME_SITE,
+      maxAge: JWT_REFRESH_EXPIRES_IN * 1000, // Convert seconds to milliseconds
+    });
+
+    // Return JWT Token in Response
+    return res.json({
+      message: "Login successful",
+      miraiAuthToken, // Short-lived JWT
+      user: {
+        uid,
+        email,
+        name,
+        picture,
+      },
+    });
+  } catch (error) {
+    console.error("Login Error:", error);
+    return res.status(401).json({ error: "Invalid Firebase token" });
+  }
 };
 
-// Get Authenticated User Details
 exports.getMe = async (req, res) => {
+  try {
+    // Extract JWT from HttpOnly cookie
+    const token = req.cookies[JWT_COOKIE_NAME];
+    if (!token) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
 
-  const user = await User.findAll();
-  res.json({ message: "GetMe endpoint not implemented yet",user });
+    try {
+      // Verify JWT
+      const decoded = verifyJWT(token);
+
+      // Fetch user details from DB
+      const user = await User.findOne({ where: { firebase_uid: decoded.uid } });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Return user details
+      return res.json({
+        uid: user.firebase_uid,
+        email: user.email,
+        name: user.full_name,
+        picture: user.profile_pic,
+        lastLogin: user.last_login,
+      });
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        return res.status(403).json({ error: "TOKEN_EXPIRED" }); // 403 Forbidden (Token needs refresh)
+      }
+      return res.status(401).json({ error: "Invalid token" }); // 401 Unauthorized (Tampered token)
+    }
+  } catch (error) {
+    console.error("Me Endpoint Error:", error);
+    return res.status(500).json({ error: "Internal server error" }); // 500 for unexpected issues
+  }
 };
+
+exports.refreshToken = async (req, res) => {
+  try {
+    // Extract Refresh Token from HttpOnly cookie
+    const refreshToken = req.cookies[JWT_REFRESH_COOKIE_NAME];
+    if (!refreshToken) {
+      return res.status(401).json({ error: "Refresh token missing" });
+    }
+
+    try {
+      // Verify Refresh Token
+      const decoded = verifyRefreshToken(refreshToken);
+
+      // Generate a new JWT
+      const newMiraiAuthToken = generateJWT(decoded.uid, decoded.email);
+
+      // Set the new JWT in HttpOnly cookie
+      res.cookie(JWT_COOKIE_NAME, newMiraiAuthToken, {
+        httpOnly: COOKIE_HTTP_ONLY === "true",
+        secure: COOKIE_SECURE === "true", // HTTPS only
+        sameSite: COOKIE_SAME_SITE, // Prevent CSRF attacks
+        maxAge: JWT_EXPIRES_IN * 1000, // 15 minutes
+      });
+
+      return res.json({ message: "Token refreshed successfully" });
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        return res.status(403).json({ error: "REFRESH_TOKEN_EXPIRED" });
+      }
+      return res.status(401).json({ error: "Invalid refresh token" });
+    }
+  } catch (error) {
+    console.error("Refresh Token Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
 
 // Verify Token
 exports.verifyToken = async (req, res) => {
-  res.json({ message: "Verify Token endpoint not implemented yet" });
+  try {
+    // Extract JWT token from request body (sent by other ThinkMirAI apps)
+    const token = req.body.token;
+
+    if (!token) {
+      return res.status(400).json({ error: "Token is required" });
+    }
+
+    try {
+      // Verify JWT
+      const decoded = verifyJWT(token);
+
+      // Fetch the PostgreSQL User ID using Firebase UID
+      const user = await User.findOne({ where: { firebase_uid: decoded.uid } });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Return PostgreSQL User ID along with Firebase UID
+      return res.json({
+        valid: true,
+        userId: user.id, // PostgreSQL User ID
+        firebaseUid: user.firebase_uid,
+        email: user.email,
+      });
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        return res.status(403).json({ error: "TOKEN_EXPIRED" });
+      }
+      return res.status(401).json({ error: "Invalid token" });
+    }
+  } catch (error) {
+    console.error("Verify Token Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 };
+
 
 // Logout User
 exports.logout = async (req, res) => {
-  res.json({ message: "Logout endpoint not implemented yet" });
+  try {
+    // Clear both tokens by setting empty cookies with immediate expiration
+    res.cookie(JWT_COOKIE_NAME, "", {
+      httpOnly: COOKIE_HTTP_ONLY,
+      secure: COOKIE_SECURE,
+      sameSite: COOKIE_SAME_SITE,
+      expires: new Date(0), // Expire immediately
+    });
+
+    res.cookie(JWT_REFRESH_COOKIE_NAME, "", {
+      httpOnly: COOKIE_HTTP_ONLY,
+      secure: COOKIE_SECURE,
+      sameSite: COOKIE_SAME_SITE,
+      expires: new Date(0),
+    });
+
+    return res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 };
+

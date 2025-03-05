@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const admin = require("./config/firebase");
 // const { Sequelize } = require("sequelize");
 const authRoutes = require("./routes/authRoutes");
@@ -19,13 +20,14 @@ app.use(
         callback(new Error("Not allowed by CORS"));
       }
     },
-    // credentials: true,
+    credentials: true,
+    exposedHeaders: ["set-cookie"], // Expose the 'set-cookie' header to the frontend
   })
 );
 
 // Middleware to parse JSON
 app.use(express.json());
-
+app.use(cookieParser()); // ✅ Enable cookie parsing
 
 // Test Route to Verify Firebase Authentication
 app.get("/api/health", (req, res) => {

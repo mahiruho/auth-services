@@ -1,6 +1,6 @@
 const admin = require("../config/firebase");
 const logger = require("../config/logger");
-const { sendEmail } = require("../utils/emailService");
+const { sendEmail } = require("./emailService");
 exports.sendEmailVerification = async (email) => {
     try {
         const userRecord = await admin.auth().getUserByEmail(email);
