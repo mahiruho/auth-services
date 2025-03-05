@@ -9,7 +9,7 @@ const authRoutes = require("./routes/authRoutes");
 const app = express();
 
 // Enable CORS for cross-domain authentication
-const allowedOrigins = ["http://localhost:3000"];
+const allowedOrigins = ["http://localhost:3000","http://localhost:4000"];
 
 app.use(
   cors({

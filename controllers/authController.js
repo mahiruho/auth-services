@@ -188,10 +188,11 @@ exports.login = async (req, res) => {
       message: "Login successful",
       miraiAuthToken, // Short-lived JWT
       user: {
-        uid,
-        email,
-        name,
-        picture,
+        firebase_uid: user.firebase_uid,
+        email: user.email,
+        full_name: user.full_name,
+        profile_pic: user.profile_pic,
+        email_verified: user.email_verified,
       },
     });
   } catch (error) {
@@ -220,11 +221,11 @@ exports.getMe = async (req, res) => {
 
       // Return user details
       return res.json({
-        uid: user.firebase_uid,
+        firebase_uid: user.firebase_uid,
         email: user.email,
-        name: user.full_name,
-        picture: user.profile_pic,
-        lastLogin: user.last_login,
+        full_name: user.full_name,
+        profile_pic: user.profile_pic,
+        email_verified: user.email_verified,
       });
     } catch (error) {
       if (error.name === "TokenExpiredError") {
