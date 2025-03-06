@@ -1,16 +1,14 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
+"use strict";
+const { Model } = require("sequelize");
+
 module.exports = (sequelize, DataTypes) => {
   class FailedLogin extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
       // define association here
+      FailedLogin.belongsTo(models.User, {
+        foreignKey: "user_id",
+        onDelete: "CASCADE",
+      });
     }
   }
   FailedLogin.init(
@@ -19,6 +17,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.UUID,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
+      },
+      user_id: {
+        type: DataTypes.UUID,
+        allowNull: true, // Can be null if email does not exist in the system
+        references: { model: "Users", key: "id" },
+        onDelete: "CASCADE",
       },
       email: {
         type: DataTypes.STRING,
@@ -31,6 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       ip_address: DataTypes.STRING,
       device: DataTypes.STRING,
       reason: DataTypes.STRING,
+      attempt_count: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1,
+        allowNull: false,
+      },
     },
     {
       sequelize,
