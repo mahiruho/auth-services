@@ -1,4 +1,4 @@
-const { User, LoginHistory,DeviceSession } = require("../models");
+const { User, LoginHistory, DeviceSession, FailedLogin } = require("../models");
 const { v4: uuidv4 } = require("uuid");
 const admin = require("../config/firebase");
 const logger = require("../config/logger");
@@ -290,7 +290,7 @@ exports.getMe = async (req, res) => {
 
       const deviceSession = await DeviceSession.findOne({
         where: {
-          user_id: decoded.uid,
+          // user_id: decoded.uid,
           session_id: decoded.session_id,
         },
       });
@@ -377,7 +377,7 @@ exports.verifyToken = async (req, res) => {
       const decoded = verifyJWT(token);
       const deviceSession = await DeviceSession.findOne({
         where: {
-          user_id: decoded.uid,
+          // user_id: decoded.uid,
           session_id: decoded.session_id,
         },
       });
@@ -430,7 +430,7 @@ exports.logout = async (req, res) => {
       { is_active: false },
       {
         where: {
-          user_id: decoded.uid,
+          // user_id: decoded.uid,
           session_id: decoded.session_id,
         },
       }
@@ -471,10 +471,15 @@ exports.logoutAll = async (req, res) => {
       return res.status(401).json({ error: "Invalid token" });
     }
 
+    const user = await User.findOne({ where: { firebase_uid: decoded.uid } });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
     // Mark all device sessions as inactive
     await DeviceSession.update(
       { is_active: false },
-      { where: { user_id: decoded.uid } }
+      { where: { user_id: user.id } }
     );
 
     // Clear authentication cookies
